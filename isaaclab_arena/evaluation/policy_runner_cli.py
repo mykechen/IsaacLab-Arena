@@ -87,6 +87,24 @@ def add_policy_runner_arguments(parser: argparse.ArgumentParser) -> None:
         help="Number of episodes to run the policy (if num_steps is not provided)",
     )
     parser.add_argument(
+        "--warmup_render_frames",
+        type=int,
+        default=0,
+        help=(
+            "Render this many frames (no physics step) after the first reset and before the policy's first"
+            " query, then recompute observations. 0 (default) keeps the original behaviour."
+        ),
+    )
+    parser.add_argument(
+        "--warmup_physics_steps",
+        type=int,
+        default=0,
+        help=(
+            "Advance physics + rendering this many control steps (no actions, not recorded) after the first reset,"
+            " then reset again before the policy's first query. 0 (default) keeps the original behaviour."
+        ),
+    )
+    parser.add_argument(
         "--language_instruction",
         type=str,
         default=None,

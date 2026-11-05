@@ -63,11 +63,49 @@ def is_distributed(args_cli: argparse.Namespace) -> bool:
     )
 
 
+def warmup_physics_then_reset(env, num_env_steps: int):
+    """Advance physics + rendering for num_env_steps control steps without actions, then reset again.
+
+    Lets time-dependent rendering state (e.g. auto-exposure) settle before the first policy query. Bypasses
+    env.step / env.reset so no warm-up episode reaches the recorders or metrics; the second reset mirrors
+    ManagerBasedEnv.reset minus record_pre_reset.
+
+    Returns:
+        Observations after the second reset.
+    """
+    base = env.unwrapped
+    env_ids = torch.arange(base.num_envs, dtype=torch.int64, device=base.device)
+    assets = {**base.scene.articulations, **base.scene.rigid_objects}
+    start = {name: asset.data.root_pos_w.clone() for name, asset in assets.items()}
+    for _ in range(num_env_steps):
+        for _ in range(base.cfg.decimation):
+            base.scene.write_data_to_sim()
+            base.sim.step(render=False)
+            base.scene.update(dt=base.physics_dt)
+        base.sim.render()
+    drift = {name: float((asset.data.root_pos_w - start[name]).norm(dim=-1).max()) for name, asset in assets.items()}
+    print(f"Warm-up: {num_env_steps} physics steps; max root drift (m): {drift}")
+    # Skip IsaacLabArenaManagerBasedRLEnv._reset_idx: it would log the warm-up as a finished episode.
+    from isaaclab_arena.environments.isaaclab_arena_manager_based_env import IsaacLabArenaManagerBasedRLEnv
+
+    assert isinstance(base, IsaacLabArenaManagerBasedRLEnv)
+    super(IsaacLabArenaManagerBasedRLEnv, base)._reset_idx(env_ids)
+    base.scene.write_data_to_sim()
+    base.sim.forward()
+    for _ in range(max(base.cfg.num_rerenders_on_reset, 1)):
+        base.sim.render()
+    base.recorder_manager.record_post_reset(env_ids)
+    base.obs_buf = base.observation_manager.compute(update_history=True)
+    return base.obs_buf
+
+
 def rollout_policy(
     env,
     policy: PolicyBase,
     num_steps: int | None,
     num_episodes: int | None,
+    warmup_render_frames: int = 0,
+    warmup_physics_steps: int = 0,
 ) -> MetricsDataCollection | None:
     assert num_steps is not None or num_episodes is not None, "Either num_steps or num_episodes must be provided"
     assert num_steps is None or num_episodes is None, "Only one of num_steps or num_episodes must be provided"
@@ -75,6 +113,14 @@ def rollout_policy(
     pbar = None
     try:
         obs, _ = env.reset()
+        if warmup_render_frames > 0:
+            # Let the RTX renderer converge before the first policy query; physics is not stepped.
+            for _ in range(warmup_render_frames):
+                env.unwrapped.sim.render()
+            obs = env.unwrapped.observation_manager.compute()
+            print(f"Warm-up: rendered {warmup_render_frames} frames after the first reset")
+        if warmup_physics_steps > 0:
+            obs = warmup_physics_then_reset(env, warmup_physics_steps)
         policy.reset()
         policy.set_task_description(env.unwrapped.get_language_instruction())
 
@@ -240,7 +286,14 @@ def main():
 
         steps_str = f"{num_steps} steps" if num_steps is not None else f"{num_episodes} episodes"
         print(f"[Rank {local_rank}/{world_size}] Starting rollout ({steps_str})")
-        metrics = rollout_policy(env, policy, num_steps, num_episodes)
+        metrics = rollout_policy(
+            env,
+            policy,
+            num_steps,
+            num_episodes,
+            warmup_render_frames=getattr(args_cli, "warmup_render_frames", 0),
+            warmup_physics_steps=getattr(args_cli, "warmup_physics_steps", 0),
+        )
 
         if metrics is not None:
             print(f"[Rank {local_rank}/{world_size}] Metrics: {metrics_to_plain_python_types(metrics)}")
