@@ -32,6 +32,12 @@ def patch_isaac_rtx_renderer() -> None:
     import isaaclab_physx.renderers.isaac_rtx_renderer as rtx_renderer
     import isaaclab_physx.renderers.isaac_rtx_renderer_utils as rtx_utils
 
+    # Newer Isaac Lab already performs the first-call pump in the stock function and
+    # removed the streaming-subscription helpers this patch relies on; nothing to patch.
+    if not hasattr(rtx_utils, "_ensure_streaming_subscription"):
+        print("Skipping isaac_rtx_renderer patch: stock ensure_isaac_rtx_render_update already handles first call")
+        return
+
     def patched_ensure_isaac_rtx_render_update() -> None:
         sim = sim_utils.SimulationContext.instance()
         if sim is None:
