@@ -158,6 +158,16 @@ class GalileoG1StaticPickAndPlaceEnvironmentCfg(ArenaEnvironmentCfg):
     task_description: str = "move the apple to the plate"
     lock_waist: bool = True
     """Keep the waist out of Pink IK unless extended arm reach is required."""
+    apple_xy_range_m: float = APPLE_SPAWN_XY_RANGE_M
+    """Half-range of the per-episode uniform XY jitter of the pick-up object, in metres."""
+    apple_offset_x_m: float = 0.0
+    """Fixed X shift of the pick-up object's spawn centre from the tuned pose, in metres (+X = away from robot)."""
+    apple_offset_y_m: float = 0.0
+    """Fixed Y shift of the pick-up object's spawn centre from the tuned pose, in metres (-Y = toward the plate)."""
+    plate_offset_x_m: float = 0.0
+    """Fixed X shift of the destination's spawn pose from the tuned pose, in metres (+X = away from robot)."""
+    plate_offset_y_m: float = 0.0
+    """Fixed Y shift of the destination's spawn pose from the tuned pose, in metres (+Y = toward the apple)."""
 
 
 @register_environment
@@ -240,8 +250,12 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
         # init_state.pos.z=0 is correct.
         embodiment.set_initial_pose(Pose(position_xyz=(0.25, 0.08, 0.0), rotation_xyzw=(0.0, 0.0, 0.0, 1.0)))
         embodiment.set_joint_initial_pos(G1_STATIC_OPEN_ARM_JOINT_POS)
-        pick_up_object_x, pick_up_object_y = PICK_UP_OBJECT_SPAWN_XY
-        destination_x, destination_y = DESTINATION_SPAWN_XY
+        pick_up_object_x = PICK_UP_OBJECT_SPAWN_XY[0] + cfg.apple_offset_x_m
+        pick_up_object_y = PICK_UP_OBJECT_SPAWN_XY[1] + cfg.apple_offset_y_m
+        apple_xy_range_m = cfg.apple_xy_range_m
+        assert apple_xy_range_m >= 0.0, f"apple_xy_range_m must be non-negative, got {apple_xy_range_m}"
+        destination_x = DESTINATION_SPAWN_XY[0] + cfg.plate_offset_x_m
+        destination_y = DESTINATION_SPAWN_XY[1] + cfg.plate_offset_y_m
         pick_up_object_z = _shelf_spawn_z(cfg.object)
         # ``PoseRange`` registers a ``randomize_object_pose`` reset event so the apple's
         # XY is resampled every episode within ``APPLE_SPAWN_XY_RANGE_M``. Z and rotation
@@ -251,13 +265,13 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
         pick_up_object.set_initial_pose(
             PoseRange(
                 position_xyz_min=(
-                    pick_up_object_x - APPLE_SPAWN_XY_RANGE_M,
-                    pick_up_object_y - APPLE_SPAWN_XY_RANGE_M,
+                    pick_up_object_x - apple_xy_range_m,
+                    pick_up_object_y - apple_xy_range_m,
                     pick_up_object_z,
                 ),
                 position_xyz_max=(
-                    pick_up_object_x + APPLE_SPAWN_XY_RANGE_M,
-                    pick_up_object_y + APPLE_SPAWN_XY_RANGE_M,
+                    pick_up_object_x + apple_xy_range_m,
+                    pick_up_object_y + apple_xy_range_m,
                     pick_up_object_z,
                 ),
                 rpy_min=(0.0, 0.0, 0.0),
