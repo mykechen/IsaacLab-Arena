@@ -19,6 +19,7 @@ from isaaclab_arena.evaluation.policy_runner_cli import (
     add_policy_runner_arguments,
     build_policy_from_cli,
 )
+from isaaclab_arena.evaluation.state_trajectory_logger import StateTrajectoryLogger
 from isaaclab_arena.metrics.metrics_logger import metrics_to_plain_python_types
 from isaaclab_arena.utils.hydra_overrides import assert_hydra_overrides
 from isaaclab_arena.utils.isaaclab_utils.simulation_app import SimulationAppContext
@@ -106,6 +107,7 @@ def rollout_policy(
     num_episodes: int | None,
     warmup_render_frames: int = 0,
     warmup_physics_steps: int = 0,
+    state_logger: StateTrajectoryLogger | None = None,
 ) -> MetricsDataCollection | None:
     assert num_steps is not None or num_episodes is not None, "Either num_steps or num_episodes must be provided"
     assert num_steps is None or num_episodes is None, "Only one of num_steps or num_episodes must be provided"
@@ -136,6 +138,8 @@ def rollout_policy(
         while True:
             with torch.inference_mode():
                 actions = policy.get_action(env, obs)
+                if state_logger is not None:
+                    state_logger.record(actions)
                 obs, _, terminated, truncated, _ = env.step(actions)
 
                 if terminated.any() or truncated.any():
@@ -286,6 +290,7 @@ def main():
 
         steps_str = f"{num_steps} steps" if num_steps is not None else f"{num_episodes} episodes"
         print(f"[Rank {local_rank}/{world_size}] Starting rollout ({steps_str})")
+        state_logger = StateTrajectoryLogger(env) if getattr(args_cli, "record_state_trajectory", False) else None
         metrics = rollout_policy(
             env,
             policy,
@@ -293,7 +298,10 @@ def main():
             num_episodes,
             warmup_render_frames=getattr(args_cli, "warmup_render_frames", 0),
             warmup_physics_steps=getattr(args_cli, "warmup_physics_steps", 0),
+            state_logger=state_logger,
         )
+        if state_logger is not None:
+            state_logger.save(os.path.join(output_dir, f"state_trajectory_rank{local_rank}.npz"))
 
         if metrics is not None:
             print(f"[Rank {local_rank}/{world_size}] Metrics: {metrics_to_plain_python_types(metrics)}")

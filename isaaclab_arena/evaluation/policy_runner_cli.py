@@ -87,6 +87,15 @@ def add_policy_runner_arguments(parser: argparse.ArgumentParser) -> None:
         help="Number of episodes to run the policy (if num_steps is not provided)",
     )
     parser.add_argument(
+        "--record_state_trajectory",
+        action="store_true",
+        default=False,
+        help=(
+            "Log per-step object/robot-body poses, joint positions and actions of every env to"
+            " state_trajectory_rank<N>.npz in the run's output dir."
+        ),
+    )
+    parser.add_argument(
         "--warmup_render_frames",
         type=int,
         default=0,
