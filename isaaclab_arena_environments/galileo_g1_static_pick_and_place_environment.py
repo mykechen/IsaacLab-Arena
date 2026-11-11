@@ -191,6 +191,10 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
         from isaaclab_arena.scene.scene import Scene
         from isaaclab_arena.tasks.pick_and_place_task import PickAndPlaceTask
         from isaaclab_arena.utils.pose import Pose, PoseRange
+        from isaaclab_arena_environments.mdp.galileo_g1_static_pick_and_place.mimic import (
+            G1StaticPickPlaceMimicEnv,
+            G1StaticPickPlaceMimicEnvCfg,
+        )
         from isaaclab_arena_environments.mdp.galileo_g1_static_pick_and_place.robot_configs import (
             G1_STATIC_FINGER_DYNAMIC_FRICTION,
             G1_STATIC_FINGER_FRICTION_MATERIAL_PATH,
@@ -238,6 +242,8 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
             dynamic_friction=G1_STATIC_FINGER_DYNAMIC_FRICTION,
             prim_name_markers=G1_STATIC_FINGER_PRIM_NAME_MARKERS,
         )
+        # Only used with --mimic: adds the automatic grasp signal needed by annotate_demos.py --auto.
+        embodiment.mimic_env = G1StaticPickPlaceMimicEnv
 
         if cfg.teleop_device is not None:
             teleop_device = self.device_registry.get_device_by_name(cfg.teleop_device)()
@@ -318,6 +324,11 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
                 # Mirror the locomanip env's success thresholds so metrics are comparable.
                 force_threshold=0.5,
                 velocity_threshold=0.1,
+                mimic_env_cfg_factory=lambda arm_mode: G1StaticPickPlaceMimicEnvCfg(
+                    arm_mode=arm_mode,
+                    pick_up_object_name=pick_up_object.name,
+                    destination_location_name=destination.name,
+                ),
             ),
             teleop_device=teleop_device,
             env_cfg_callback=env_cfg_callback,
