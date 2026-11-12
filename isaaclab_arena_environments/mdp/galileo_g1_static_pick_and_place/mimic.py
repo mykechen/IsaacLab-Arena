@@ -112,6 +112,8 @@ class G1StaticPickPlaceMimicEnvCfg(MimicEnvCfg):
     arm_mode: ArmMode = ArmMode.DUAL_ARM
     place_interpolation_steps: int = 20
     """Steps to bridge the apple-relative grasp segment to the plate-relative place segment (0.4 s at 50 Hz)."""
+    datagen_seed: int | None = None
+    """Seed for Mimic data generation; None keeps the shared default."""
     recovery: bool = False
     """Split the left arm into failed grasp -> re-grasp -> place, each grasp segment transformed with the apple pose at
     its own start, so generated re-grasps go to where the apple actually is after the failed attempt."""
@@ -123,6 +125,8 @@ class G1StaticPickPlaceMimicEnvCfg(MimicEnvCfg):
         assert self.arm_mode == ArmMode.DUAL_ARM, f"G1 static Mimic expects ArmMode.DUAL_ARM, got {self.arm_mode}"
         for key, value in MIMIC_DATAGEN_CONFIG_DEFAULTS.items():
             setattr(self.datagen_config, key, value)
+        if self.datagen_seed is not None:
+            self.datagen_config.seed = self.datagen_seed
         self.datagen_config.name = (
             f"g1_static_pick_and_place_{self.pick_up_object_name}_to_{self.destination_location_name}_D0"
         )
