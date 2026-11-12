@@ -168,6 +168,8 @@ class GalileoG1StaticPickAndPlaceEnvironmentCfg(ArenaEnvironmentCfg):
     """Fixed X shift of the destination's spawn pose from the tuned pose, in metres (+X = away from robot)."""
     plate_offset_y_m: float = 0.0
     """Fixed Y shift of the destination's spawn pose from the tuned pose, in metres (+Y = toward the apple)."""
+    mimic_recovery: bool = False
+    """With --mimic: annotate/generate push-and-re-grasp demos (failed grasp -> re-grasp -> place)."""
 
 
 @register_environment
@@ -328,6 +330,7 @@ class GalileoG1StaticPickAndPlaceEnvironment(ArenaEnvironmentFactory[GalileoG1St
                     arm_mode=arm_mode,
                     pick_up_object_name=pick_up_object.name,
                     destination_location_name=destination.name,
+                    recovery=cfg.mimic_recovery,
                 ),
             ),
             teleop_device=teleop_device,

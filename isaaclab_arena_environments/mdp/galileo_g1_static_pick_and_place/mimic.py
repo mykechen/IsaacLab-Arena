@@ -20,8 +20,11 @@ from isaaclab_arena.embodiments.g1.g1 import G1MimicEnv
 from isaaclab_arena.tasks.common.mimic_default_params import MIMIC_DATAGEN_CONFIG_DEFAULTS
 
 GRASP_SIGNAL_NAME = "grasp_left"
+FAILED_GRASP_SIGNAL_NAME = "failed_grasp_left"
 HAND_CLOSED_MEAN_ABS_RAD = 0.30
 """Mean |left_hand_* joint| above which the left hand counts as closed (same threshold as the failure classifier)."""
+HAND_OPEN_MEAN_ABS_RAD = 0.15
+"""Mean |left_hand_* joint| below which a closed left hand counts as re-opened (classifier re-arm threshold)."""
 LIFT_HEIGHT_M = 0.03
 """Apple rise above its height at episode start that counts as lifted."""
 
@@ -30,7 +33,10 @@ class G1StaticPickPlaceMimicEnv(G1MimicEnv):
     """G1 Mimic env with an automatic grasp signal, so ``annotate_demos.py --auto`` works headless."""
 
     def get_subtask_term_signals(self, env_ids: Sequence[int] | None = None) -> dict[str, torch.Tensor]:
-        """Return ``{"grasp_left": bool[num_envs]}``: left hand closed while the apple is lifted.
+        """Return ``{"grasp_left": bool[num_envs], "failed_grasp_left": bool[num_envs]}``.
+
+        ``grasp_left``: left hand closed while the apple is lifted. ``failed_grasp_left``: the left hand has closed
+        at least once this episode and is now open again while the apple is not lifted (used by recovery demos).
 
         Args:
             env_ids: Environment indices to get the signals for. If None, all envs are considered.
@@ -42,7 +48,12 @@ class G1StaticPickPlaceMimicEnv(G1MimicEnv):
             self._left_hand_joint_ids = [i for i, n in enumerate(robot.data.joint_names) if n.startswith("left_hand")]
             assert self._left_hand_joint_ids, "no left_hand_* joints found on the robot"
         joint_pos = wp.to_torch(robot.data.joint_pos)
-        hand_closed = joint_pos[:, self._left_hand_joint_ids].abs().mean(dim=-1) > HAND_CLOSED_MEAN_ABS_RAD
+        closure = joint_pos[:, self._left_hand_joint_ids].abs().mean(dim=-1)
+        hand_closed = closure > HAND_CLOSED_MEAN_ABS_RAD
+        if not hasattr(self, "_closed_once"):
+            self._closed_once = torch.zeros_like(hand_closed)
+        self._closed_once = torch.where(self.episode_length_buf == 0, torch.zeros_like(hand_closed), self._closed_once)
+        self._closed_once |= hand_closed
 
         apple_name = self.cfg.subtask_configs["left"][0].object_ref
         apple_z = wp.to_torch(self.scene[apple_name].data.root_pos_w)[:, 2]
@@ -51,7 +62,8 @@ class G1StaticPickPlaceMimicEnv(G1MimicEnv):
         self._apple_start_z = torch.where(self.episode_length_buf == 0, apple_z, self._apple_start_z)
         lifted = apple_z > self._apple_start_z + LIFT_HEIGHT_M
 
-        return {GRASP_SIGNAL_NAME: (hand_closed & lifted)[env_ids]}
+        failed_grasp = self._closed_once & (closure < HAND_OPEN_MEAN_ABS_RAD) & ~lifted
+        return {GRASP_SIGNAL_NAME: (hand_closed & lifted)[env_ids], FAILED_GRASP_SIGNAL_NAME: failed_grasp[env_ids]}
 
     def target_eef_pose_to_action(
         self,
@@ -100,6 +112,9 @@ class G1StaticPickPlaceMimicEnvCfg(MimicEnvCfg):
     arm_mode: ArmMode = ArmMode.DUAL_ARM
     place_interpolation_steps: int = 20
     """Steps to bridge the apple-relative grasp segment to the plate-relative place segment (0.4 s at 50 Hz)."""
+    recovery: bool = False
+    """Split the left arm into failed grasp -> re-grasp -> place, each grasp segment transformed with the apple pose at
+    its own start, so generated re-grasps go to where the apple actually is after the failed attempt."""
 
     def __post_init__(self):
         from isaaclab_arena_g1.g1_env.mdp.recorders.g1_locomanip_recorder_cfg import G1LocomanipRecorderManagerCfg
@@ -115,8 +130,10 @@ class G1StaticPickPlaceMimicEnvCfg(MimicEnvCfg):
         # Same recorder set as the G1 locomanip Mimic path, so generated files carry the keys the LeRobot converter reads.
         self.mimic_recorder_config = G1LocomanipRecorderManagerCfg()
 
-        self.subtask_configs["left"] = [
-            _subtask(self.pick_up_object_name, GRASP_SIGNAL_NAME, "nearest_neighbor_object"),
+        grasp = [_subtask(self.pick_up_object_name, GRASP_SIGNAL_NAME, "nearest_neighbor_object")]
+        if self.recovery:
+            grasp.insert(0, _subtask(self.pick_up_object_name, FAILED_GRASP_SIGNAL_NAME, "nearest_neighbor_object"))
+        self.subtask_configs["left"] = grasp + [
             _subtask(self.destination_location_name, None, "nearest_neighbor_object", self.place_interpolation_steps),
         ]
         self.subtask_configs["right"] = [_subtask(None, None, "random")]
