@@ -19,6 +19,7 @@ from isaaclab_arena.evaluation.policy_runner_cli import (
     add_policy_runner_arguments,
     build_policy_from_cli,
 )
+from isaaclab_arena.evaluation.forced_failure import ForcedFailurePerturber
 from isaaclab_arena.evaluation.state_trajectory_logger import StateTrajectoryLogger
 from isaaclab_arena.metrics.metrics_logger import metrics_to_plain_python_types
 from isaaclab_arena.utils.hydra_overrides import assert_hydra_overrides
@@ -108,6 +109,7 @@ def rollout_policy(
     warmup_render_frames: int = 0,
     warmup_physics_steps: int = 0,
     state_logger: StateTrajectoryLogger | None = None,
+    perturber_factory=None,
 ) -> MetricsDataCollection | None:
     assert num_steps is not None or num_episodes is not None, "Either num_steps or num_episodes must be provided"
     assert num_steps is None or num_episodes is None, "Only one of num_steps or num_episodes must be provided"
@@ -125,6 +127,7 @@ def rollout_policy(
             obs = warmup_physics_then_reset(env, warmup_physics_steps)
         policy.reset()
         policy.set_task_description(env.unwrapped.get_language_instruction())
+        perturber = perturber_factory(env) if perturber_factory is not None else None
 
         # Setup progress bar based on num_steps or num_episodes
         if num_steps is not None:
@@ -141,6 +144,8 @@ def rollout_policy(
                 if state_logger is not None:
                     state_logger.record(actions)
                 obs, _, terminated, truncated, _ = env.step(actions)
+                if perturber is not None:
+                    perturber.after_step(terminated, truncated)
 
                 if terminated.any() or truncated.any():
                     # Only reset policy for those envs that are terminated or truncated
@@ -291,6 +296,15 @@ def main():
         steps_str = f"{num_steps} steps" if num_steps is not None else f"{num_episodes} episodes"
         print(f"[Rank {local_rank}/{world_size}] Starting rollout ({steps_str})")
         state_logger = StateTrajectoryLogger(env) if getattr(args_cli, "record_state_trajectory", False) else None
+        forced_failure_offset = getattr(args_cli, "forced_failure_offset_xy", None)
+        perturbers = []
+
+        def make_perturber(env_):
+            perturbers.append(
+                ForcedFailurePerturber(env_, args_cli.forced_failure_object, tuple(forced_failure_offset))
+            )
+            return perturbers[-1]
+
         metrics = rollout_policy(
             env,
             policy,
@@ -299,7 +313,10 @@ def main():
             warmup_render_frames=getattr(args_cli, "warmup_render_frames", 0),
             warmup_physics_steps=getattr(args_cli, "warmup_physics_steps", 0),
             state_logger=state_logger,
+            perturber_factory=make_perturber if forced_failure_offset is not None else None,
         )
+        for perturber in perturbers:
+            perturber.save(os.path.join(output_dir, f"forced_failure_events_rank{local_rank}.jsonl"))
         if state_logger is not None:
             state_logger.save(os.path.join(output_dir, f"state_trajectory_rank{local_rank}.npz"))
 

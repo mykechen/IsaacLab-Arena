@@ -114,6 +114,23 @@ def add_policy_runner_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--forced_failure_offset_xy",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("DX", "DY"),
+        help=(
+            "Recovery eval: teleport --forced_failure_object by (DX, DY) m the first time the left hand closes in"
+            " each episode. Off by default."
+        ),
+    )
+    parser.add_argument(
+        "--forced_failure_object",
+        type=str,
+        default="apple_01_objaverse_robolab",
+        help="Scene object moved by --forced_failure_offset_xy.",
+    )
+    parser.add_argument(
         "--language_instruction",
         type=str,
         default=None,
