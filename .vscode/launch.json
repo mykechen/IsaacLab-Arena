@@ -13,7 +13,7 @@
             "pathMappings": [
                 {
                     "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "/workspaces/isaac_arena"
+                    "remoteRoot": "/workspaces/isaaclab_arena"
                 }
             ]
         }

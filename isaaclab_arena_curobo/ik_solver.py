@@ -10,6 +10,9 @@ from __future__ import annotations
 import logging
 import torch
 
+# Local patch: alias warp.torch for cuRobo on Warp >= 1.16 (must precede curobo imports).
+from isaaclab_arena.patches import warp_torch_compat  # noqa: F401  isort:skip
+
 from curobo.geom.types import WorldConfig
 from curobo.types.base import TensorDeviceType
 from curobo.types.math import Pose as CuroboPose

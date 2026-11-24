@@ -1,0 +1,73 @@
+# Object-difficulty study: does object GEOMETRY predict GR00T's grasp success?
+#
+# Everything is held constant except the object being picked up. Same scene, same
+# destination bowl, same lighting (hdr), same policy, same episode count.
+#
+# NOTE: the shipped droid_pnp_srl_gr00t_experiment.yaml varies `hdr` AND `pick_up_object`
+# together, which confounds lighting with geometry. This file deliberately does not.
+#
+# Ladder runs easy -> hard for a parallel-jaw gripper:
+#   cube   flat parallel faces, the ideal grasp
+#   block  also a box; controls for "is it just boxes that work?"
+#   can    cylinder, no flat faces, but grippable across the diameter
+#   mug    cylinder + handle + hollow  <- the 50% case that prompted this
+#   bottle tapered, so the grip can slide
+#   banana irregular, elongated, low profile
+shared:
+  environment:
+    type: pick_and_place_maple_table
+    enable_cameras: true
+    embodiment: droid_abs_joint_pos
+    destination_location: bowl_ycb_robolab
+    hdr: home_office_robolab
+    # Failed episodes burn the full duration; successes end early. The successes observed
+    # so far finished by step 766 (~51 s), so 55 s keeps them all while trimming ~20% off
+    # every timeout. Raise back to 70 if successes start getting truncated.
+    episode_length_s: 55
+  policy:
+    type: isaaclab_arena_gr00t.policy.gr00t_remote_closedloop_policy.Gr00tRemoteClosedloopPolicy
+    policy_config_yaml_path: isaaclab_arena_gr00t/policy/config/droid_manip_gr00t_closedloop_config.yaml
+    policy_device: cuda:0
+    remote_host: 127.0.0.1
+    remote_port: 5555
+  rollout_limit:
+    # Exploratory pass: 5 is too few for a defensible per-object rate, but enough to reveal
+    # the ORDERING. Rerun the interesting pair at 50 once the pattern is visible.
+    num_episodes: 5
+
+runs:
+  obj_cube:
+    environment:
+      pick_up_object: rubiks_cube_hot3d_robolab
+    environment_builder:
+      language_instruction: Pick up the Rubik's cube and place it in the bowl.
+
+  obj_block:
+    environment:
+      pick_up_object: wood_block_ycb_robolab
+    environment_builder:
+      language_instruction: Pick up the wooden block and place it in the bowl.
+
+  obj_can:
+    environment:
+      pick_up_object: tomato_soup_can_ycb_robolab
+    environment_builder:
+      language_instruction: Pick up the soup can and place it in the bowl.
+
+  obj_mug:
+    environment:
+      pick_up_object: mug_ycb_robolab
+    environment_builder:
+      language_instruction: Pick up the mug and place it in the bowl.
+
+  obj_bottle:
+    environment:
+      pick_up_object: mustard_ycb_robolab
+    environment_builder:
+      language_instruction: Pick up the mustard bottle and place it in the bowl.
+
+  obj_banana:
+    environment:
+      pick_up_object: banana_ycb_robolab
+    environment_builder:
+      language_instruction: Pick up the banana and place it in the bowl.
